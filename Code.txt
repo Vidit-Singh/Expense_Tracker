@@ -1,0 +1,556 @@
+PHP:
+
+Index:
+<?php
+include('config.php');
+include('functions.php');
+$msg="";
+if(isset($_POST['login'])){
+	$username=get_safe_value($_POST['username']);
+	$password=get_safe_value($_POST['password']);
+	
+	$res=mysqli_query($con,"select * from users where username='$username'");
+	
+	if(mysqli_num_rows($res)>0){
+		$row=mysqli_fetch_assoc($res);
+		
+		$verify=password_verify($password,$row['password']);
+		
+		if($verify==1){
+			$_SESSION['UID']=$row['id'];
+			$_SESSION['UNAME']=$row['username'];
+			$_SESSION['UROLE']=$row['role'];
+			if($_SESSION['UROLE']=='User'){
+				redirect('dashboard.php');
+			}else{
+				redirect('category.php');
+			}
+		}else{
+			$msg="Please enter valid password";
+		}
+	}else{
+		$msg="Please enter valid username";
+	}
+		
+}
+?>
+<?php
+function prx($data){
+	echo '<pre>';
+	print_r($data);
+	die();
+}
+
+function get_safe_value($data){
+	global $con;
+	if($data){
+		return mysqli_real_escape_string($con,$data);
+	}
+}
+
+function redirect($link){
+	?>
+	<script>
+	window.location.href="<?php echo $link?>";
+	</script>
+	<?php
+}
+
+function checkUser(){
+	if(isset($_SESSION['UID']) && $_SESSION['UID']!=''){
+	
+		
+	}else{
+		redirect('index.php');
+	}
+}
+
+function getCategory($category_id='',$page=''){
+	global $con;
+	$res=mysqli_query($con,"select * from category order by name asc");
+	$fun="required";
+	if($page=='reports'){
+		//$fun="onchange=change_cat()";
+		$fun="";
+	}
+	$html='<select $fun name="category_id" id="category_id"  class="form-control">';
+		$html.='<option value="">Select Category</option>';
+		
+		while($row=mysqli_fetch_assoc($res)){
+			if($category_id>0 && $category_id==$row['id']){
+				$html.='<option value="'.$row['id'].'" selected>'.$row['name'].'</option>';
+			}else{
+				$html.='<option value="'.$row['id'].'">'.$row['name'].'</option>';	
+			}
+			
+		}
+		
+	$html.='</select>';
+	return $html;
+	
+}
+
+function getDashboardExpense($type){
+	global $con;
+	$today=date('Y-m-d');
+	if($type=='today'){
+		$sub_sql=" and expense_date='$today'";
+		$from=$today;
+		$to=$today;
+	}
+	elseif($type=='yesterday'){
+		$yesterday=date('Y-m-d',strtotime('yesterday'));
+		$sub_sql=" and expense_date='$yesterday'";
+		$from=$yesterday;
+		$to=$yesterday;
+	}elseif($type=='week' || $type=='month' || $type=='year'){
+		$from=date('Y-m-d',strtotime("-1 $type"));
+		$sub_sql=" and expense_date between '$from' and '$today'";
+		$to=$today;
+	}else{
+		$sub_sql=" ";
+		$from='';
+		$to='';
+	}
+	
+	$res=mysqli_query($con,"select sum(price) as price from expense where added_by='".$_SESSION['UID']."' $sub_sql");
+	
+	$row=mysqli_fetch_assoc($res);
+	$p=0;
+	$link="";
+	if($row['price']>0){
+		$p=$row['price'];
+		$link="&nbsp;<a href='dashboard_report.php?from=".$from."&to=".$to."' target='_blank' class='detail_link'>Details</a>";
+	}
+	
+	return $p.$link;	
+}
+
+function adminArea(){
+	if($_SESSION['UROLE']!='Admin'){
+		redirect('dashboard.php');
+	}
+}
+
+function userArea(){
+	if($_SESSION['UROLE']!='User'){
+		redirect('category.php');
+	}
+}
+?>
+
+Confifguration:
+<?php
+session_start();
+$con=mysqli_connect('localhost','root','','expense');
+?>
+
+
+Category:
+<?php
+   include('header.php');
+   checkUser();
+   adminArea();
+   
+   if(isset($_GET['type']) && $_GET['type']=='delete' && isset($_GET['id']) && $_GET['id']>0){
+   	$id=get_safe_value($_GET['id']);
+   	mysqli_query($con,"delete from category where id=$id");
+   	echo "<br/>Data deleted<br/>";
+   }
+   
+   $res=mysqli_query($con,"select * from category order by id desc");
+   ?>
+<?php
+   if(mysqli_num_rows($res)>0){
+ ?>
+ 
+ Expense:
+ <?php
+   include('header.php');
+   checkUser();
+   userArea();
+   
+   if(isset($_GET['type']) && $_GET['type']=='delete' && isset($_GET['id']) && $_GET['id']>0){
+   	$id=get_safe_value($_GET['id']);
+   	mysqli_query($con,"delete from expense where id=$id");
+   	echo "<br/>Data deleted<br/>";
+   }
+   
+   $res=mysqli_query($con,"select expense.*,category.name from expense,category  where expense.category_id=category.id and expense.added_by='".$_SESSION['UID']."'
+   order by expense.expense_date asc");
+   ?>
+<?php
+   if(mysqli_num_rows($res)>0){
+   ?>
+Reports:
+<?php
+   include('header.php');
+   checkUser();
+   userArea();
+   
+   $cat_id='';
+   $sub_sql='';
+   $from='';
+   $to='';
+   if(isset($_GET['category_id']) && $_GET['category_id']>0){
+   	$cat_id=get_safe_value($_GET['category_id']);
+   	$sub_sql=" and category.id=$cat_id ";
+   }
+   
+   if(isset($_GET['from'])){
+   	$from=get_safe_value($_GET['from']);
+   }
+   if(isset($_GET['to'])){
+   	$to=get_safe_value($_GET['to']);
+   }
+   
+   if($from!=='' && $to!=''){
+   	$sub_sql.=" and expense.expense_date between '$from' and '$to' ";
+   }
+   	
+   
+   $res=mysqli_query($con,"select sum(expense.price) as price,category.name from expense,category where expense.category_id=category.id and expense.added_by='".$_SESSION['UID']."' $sub_sql  group by expense.category_id");
+ ?>
+Managr_User:
+<?php
+   include('header.php');
+   checkUser();
+   adminArea();
+   $msg="";
+   $username="";
+   $password="";
+   $label="Add";
+   if(isset($_GET['id']) && $_GET['id']>0){
+   	$label="Edit";
+   	$id=get_safe_value($_GET['id']);
+   	$res=mysqli_query($con,"select * from users where id=$id");
+   	if(mysqli_num_rows($res)==0){
+   		redirect('users.php');
+   		die();
+   	}
+   	$row=mysqli_fetch_assoc($res);
+   	$username=$row['username'];
+   	$password=$row['password'];
+   }
+   
+   if(isset($_POST['submit'])){
+   	$username=get_safe_value($_POST['username']);
+   	$password=get_safe_value($_POST['password']);
+   	$type="add";
+   	$sub_sql="";
+   	if(isset($_GET['id']) && $_GET['id']>0){
+   		$type="edit";
+   		$sub_sql="and id!=$id";
+   	}
+   	
+   	$res=mysqli_query($con,"select * from users where username='$username' $sub_sql");
+   	if(mysqli_num_rows($res)>0){
+   		$msg="Username already exists";
+   	}else{
+   		
+   		$password=password_hash($password,PASSWORD_DEFAULT);
+   		
+   		$sql="insert into users(username,password,role) values('$username','$password','User')";
+   		if(isset($_GET['id']) && $_GET['id']>0){
+   			$sql="update users set username='$username',password='$password' where id=$id";
+   		}
+   		mysqli_query($con,$sql);
+   		redirect('users.php');
+   	}
+   }
+ 
+Logout:
+<?php
+include('config.php');
+include('functions.php');
+unset($_SESSION['UID']);
+unset($_SESSION['UNAME']);
+redirect('index1.php');
+?>
+
+HTML:
+Index.html:
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags-->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="description" content="au theme template">
+    <meta name="author" content="Hau Nguyen">
+    <meta name="keywords" content="au theme template">
+
+    <!-- Title Page-->
+    <title>Dashboard</title>
+
+    <!-- Fontfaces CSS-->
+    <link href="css/font-face.css" rel="stylesheet" media="all">
+    <link href="vendor/font-awesome-4.7/css/font-awesome.min.css" rel="stylesheet" media="all">
+    <link href="vendor/font-awesome-5/css/fontawesome-all.min.css" rel="stylesheet" media="all">
+    <link href="vendor/mdi-font/css/material-design-iconic-font.min.css" rel="stylesheet" media="all">
+
+    <!-- Bootstrap CSS-->
+    <link href="vendor/bootstrap-4.1/bootstrap.min.css" rel="stylesheet" media="all">
+
+    <!-- Vendor CSS-->
+    <link href="vendor/animsition/animsition.min.css" rel="stylesheet" media="all">
+    <link href="vendor/bootstrap-progressbar/bootstrap-progressbar-3.3.4.min.css" rel="stylesheet" media="all">
+    <link href="vendor/wow/animate.css" rel="stylesheet" media="all">
+    <link href="vendor/css-hamburgers/hamburgers.min.css" rel="stylesheet" media="all">
+    
+
+    <!-- Main CSS-->
+    <link href="css/theme.css" rel="stylesheet" media="all">
+
+</head>
+
+<body class="animsition">
+    <div class="page-wrapper">
+        <!-- HEADER MOBILE-->
+        <header class="header-mobile d-block d-lg-none">
+            <div class="header-mobile__bar">
+                <div class="container-fluid">
+                    <div class="header-mobile-inner">
+                        <a class="logo" href="index.html">
+                            <img src="images/icon/logo.png" alt="CoolAdmin" />
+                        </a>
+                        <button class="hamburger hamburger--slider" type="button">
+                            <span class="hamburger-box">
+                                <span class="hamburger-inner"></span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <nav class="navbar-mobile">
+                <div class="container-fluid">
+                    <ul class="navbar-mobile__list list-unstyled">
+                        <li class="has-sub">
+                            <a class="js-arrow" href="#">
+                                <i class="fas fa-tachometer-alt"></i>Dashboard</a>
+						</li>
+                        
+                        
+					</ul>
+                </div>
+            </nav>
+        </header>
+        <!-- END HEADER MOBILE-->
+
+        <!-- MENU SIDEBAR-->
+        <aside class="menu-sidebar d-none d-lg-block">
+            <div class="logo">
+                <a href="#">
+                    <img src="images/icon/logo.png" alt="Cool Admin" />
+                </a>
+            </div>
+            <div class="menu-sidebar__content js-scrollbar1">
+                <nav class="navbar-sidebar">
+                    <ul class="list-unstyled navbar__list">
+                        <li class="active has-sub">
+                            <a class="js-arrow" href="#">
+                                <i class="fas fa-tachometer-alt"></i>Dashboard</a>
+                            
+						</li>
+                        <li>
+                            <a href="expense.php">
+                                <i class="fas fa-chart-bar"></i>Expense</a>
+                        </li>
+						<li>
+                            <a href="reports.php">
+                                <i class="fas fa-chart-bar"></i>Reports</a>
+                        </li>
+						<li>
+                            <a href="logout.php">
+                                <i class="fas fa-chart-bar"></i>Logout</a>
+                        </li>
+						
+					</ul>
+                </nav>
+            </div>
+        </aside>
+        <!-- END MENU SIDEBAR-->
+
+        <!-- PAGE CONTAINER-->
+        <div class="page-container">
+            <!-- HEADER DESKTOP-->
+            <header class="header-desktop">
+                <div class="section__content section__content--p30">
+                    
+                </div>
+            </header>
+            <!-- HEADER DESKTOP-->
+
+            <!-- MAIN CONTENT-->
+            <div class="main-content">
+                <div class="section__content section__content--p30">
+                    <div class="container-fluid">
+                        <div class="row m-t-25">
+                            <div class="col-sm-6 col-lg-3">
+                                <div class="overview-item overview-item--c1">
+                                    <div class="overview__inner">
+                                        <div class="overview-box clearfix">
+                                            <div class="icon">
+                                                <i class="zmdi zmdi-account-o"></i>
+                                            </div>
+                                            <div class="text">
+                                                <h2>10368</h2>
+                                                <span>members online</span>
+                                            </div>
+                                        </div>
+                                        
+                                    </div>
+                                </div>
+                            </div>
+                            
+					   </div>
+                        
+						
+					</div>
+                </div>
+            </div>
+            <!-- END MAIN CONTENT-->
+            <!-- END PAGE CONTAINER-->
+        </div>
+
+    </div>
+
+    <!-- Jquery JS-->
+    <script src="vendor/jquery-3.2.1.min.js"></script>
+    <!-- Bootstrap JS-->
+    <script src="vendor/bootstrap-4.1/popper.min.js"></script>
+    <script src="vendor/bootstrap-4.1/bootstrap.min.js"></script>
+    <!-- Vendor JS       -->
+    <script src="vendor/animsition/animsition.min.js"></script>
+    
+   
+    <!-- Main JS-->
+    <script src="js/main.js"></script>
+
+</body>
+
+</html>
+<!-- end document-->
+
+Header:
+<?php
+   include('config.php');
+   include('functions.php');
+   ?>
+<!DOCTYPE html>
+<html lang="en">
+   <head>
+      <!-- Required meta tags-->
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+      <meta name="description" content="au theme template">
+      <meta name="author" content="Hau Nguyen">
+      <meta name="keywords" content="au theme template">
+      <!-- Title Page-->
+      <title>Dashboard</title>
+      <!-- Fontfaces CSS-->
+      <link href="css/font-face.css" rel="stylesheet" media="all">
+      <link href="vendor/font-awesome-4.7/css/font-awesome.min.css" rel="stylesheet" media="all">
+      <link href="vendor/font-awesome-5/css/fontawesome-all.min.css" rel="stylesheet" media="all">
+      <link href="vendor/mdi-font/css/material-design-iconic-font.min.css" rel="stylesheet" media="all">
+      <!-- Bootstrap CSS-->
+      <link href="vendor/bootstrap-4.1/bootstrap.min.css" rel="stylesheet" media="all">
+      <!-- Vendor CSS-->
+      <link href="vendor/animsition/animsition.min.css" rel="stylesheet" media="all">
+      <link href="vendor/bootstrap-progressbar/bootstrap-progressbar-3.3.4.min.css" rel="stylesheet" media="all">
+      <link href="vendor/wow/animate.css" rel="stylesheet" media="all">
+      <link href="vendor/css-hamburgers/hamburgers.min.css" rel="stylesheet" media="all">
+      <!-- Main CSS-->
+      <link href="css/theme.css" rel="stylesheet" media="all">
+      <script>
+         function setTitle(title){
+         	document.title=title;
+         }
+         function selectLink(id){
+         	document.getElementById(id).classList.add('active');
+         }
+      </script>
+   </head>
+   <body class="animsition">
+      <div class="page-wrapper">
+      <!-- HEADER MOBILE-->
+      <header class="header-mobile d-block d-lg-none">
+         <div class="header-mobile__bar">
+            <div class="container-fluid">
+               <div class="header-mobile-inner">
+                  <a class="logo" href="index.html">
+                  <img src="images/icon/logo.png" alt="CoolAdmin" />
+                  </a>
+                  <button class="hamburger hamburger--slider" type="button">
+                  <span class="hamburger-box">
+                  <span class="hamburger-inner"></span>
+                  </span>
+                  </button>
+               </div>
+            </div>
+         </div>
+         <nav class="navbar-mobile">
+            <div class="container-fluid">
+               <ul class="navbar-mobile__list list-unstyled">
+                  <li class="has-sub">
+                     <a class="js-arrow" href="#">
+                     <i class="fas fa-tachometer-alt"></i>Dashboard</a>
+                  </li>
+               </ul>
+            </div>
+         </nav>
+      </header>
+      <!-- END HEADER MOBILE-->
+      <!-- MENU SIDEBAR-->
+      <aside class="menu-sidebar d-none d-lg-block">
+         <div class="logo">
+            <a href="#">
+            <img src="images/icon/logo.png" alt="Cool Admin" />
+            </a>
+         </div>
+         <div class="menu-sidebar__content js-scrollbar1">
+            <nav class="navbar-sidebar">
+               <ul class="list-unstyled navbar__list">
+                  <?php
+                     if($_SESSION['UROLE']=='User'){
+                     ?>
+                  <li id="dashboard_link">
+                     <a class="js-arrow" href="dashboard.php">
+                     <i class="fas fa-tachometer-alt"></i>Dashboard</a>
+                  </li>
+                  <li id="expense_link">
+                     <a href="expense.php">
+                     <i class="fas  fa-rupee"></i>Expense</a>
+                  </li>
+                  <li id="reports_link">
+                     <a href="reports.php">
+                     <i class="fas fa-chart-bar"></i>Reports</a>
+                  </li>
+                  <?php } else {?>
+                  <li id="category_link">
+                     <a href="category.php">
+                     <i class="fas  fa-list-alt"></i>Category</a>
+                  </li>
+                  <li id="users_link">
+                     <a href="users.php">
+                     <i class="fas fa-user-md"></i>Users</a>
+                  </li>
+                  <?php } ?>
+                  <li>
+                     <a href="logout.php">
+                     <i class="fas fa-power-off"></i>Logout</a>
+                  </li>
+               </ul>
+            </nav>
+         </div>
+      </aside>
+      <!-- END MENU SIDEBAR-->
+      <!-- PAGE CONTAINER-->
+      <div class="page-container">
+      <!-- HEADER DESKTOP-->
+      <header class="header-desktop">
+         <div class="section__content section__content--p30">
+         </div>
+      </header>
+      <!-- HEADER DESKTOP-->
